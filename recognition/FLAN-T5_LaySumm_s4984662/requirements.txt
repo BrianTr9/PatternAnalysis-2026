@@ -1,5 +1,5 @@
 # requirements.txt - exact dependency versions for FLAN-T5 lay summarisation (COMP3710 Project 2.6)
-# Author : Truong Trung Bao (s4984662)
+# Author : Trung Bao Truong (Brian Truong), student ID 49846627 (s4984662)
 #
 # Pinned from the Rangpur conda env "torch" on 2026-10-09 (Python 3.11.15).
 # The training/evaluation results in the README were produced with these versions.

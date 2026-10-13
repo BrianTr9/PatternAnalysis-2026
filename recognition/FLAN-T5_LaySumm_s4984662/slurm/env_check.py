@@ -1,7 +1,7 @@
 """
 env_check.py - sanity check of the Rangpur GPU environment (run through slurm/env_check.sh).
 
-Author : Truong Trung Bao (s4984662)
+Author : Trung Bao Truong (Brian Truong), student ID 49846627 (s4984662)
 Course : COMP3710 Pattern Recognition, UQ, Semester 2 2026 - Project 2.6
 
 Prints library versions, the GPU model and VRAM, and loads FLAN-T5-base from the

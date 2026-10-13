@@ -1,7 +1,7 @@
 """
 dataset.py - data loading and preprocessing for BioLaySumm 2025 LaymanRRG (open-source track).
 
-Author : Truong Trung Bao (s4984662)
+Author : Trung Bao Truong (Brian Truong), student ID 49846627 (s4984662)
 Course : COMP3710 Pattern Recognition, UQ, Semester 2 2026 - Project 2.6
          (FLAN-T5 lay summarisation of radiology reports, LoRA vs full fine-tuning)
 

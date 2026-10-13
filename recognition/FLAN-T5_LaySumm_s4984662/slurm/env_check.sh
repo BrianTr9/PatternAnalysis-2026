@@ -1,6 +1,6 @@
 #!/bin/bash
 # env_check.sh - Slurm job: sanity check of the Rangpur A100 environment.
-# Author : Truong Trung Bao (s4984662) | COMP3710 Project 2.6
+# Author : Trung Bao Truong (Brian Truong), student ID 49846627 (s4984662) | COMP3710 Project 2.6
 #
 # Submit from the project folder:  sbatch slurm/env_check.sh
 #
