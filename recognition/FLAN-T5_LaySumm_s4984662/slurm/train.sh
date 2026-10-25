@@ -11,6 +11,8 @@
 #   sbatch slurm/train.sh --mode full --lr 5e-5
 #   sbatch --time=00:20:00 slurm/train.sh --mode lora --epochs 1 --max_train_samples 200 \
 #          --max_eval_samples 100 --output_dir runs/smoke        # short check before a real run
+#   sbatch --time=<h:mm:ss> slurm/train.sh --mode lora --lr 1e-4 --epochs 1 \
+#          --max_train_samples 20000 --skip_final_eval --output_dir runs/sweep_lora_lr1e-4   # LR trial
 # Then watch it with `squeue --me` (R = running; PD (PartitionConfig) = wrong account) and
 # `tail -f run_<jobid>.out`. Results are written to runs/<name>/ (git-ignored).
 #

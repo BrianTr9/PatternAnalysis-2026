@@ -32,6 +32,9 @@ Description
     process it behaves as a plain script; with N > 1 each process holds a model copy (DDP) and
     only rank 0 evaluates and writes files. Rangpur nodes have one GPU, so N = 1 there.
 
+    With --skip_final_eval the validation split is never touched: only the development set
+    is evaluated (used to compare learning rates before the real runs).
+
 Outputs (in `--output_dir`, git-ignored): best/ (checkpoint), curves.png, metrics.json,
     val_predictions.jsonl (every validation prediction with its ROUGE scores, for the autopsy).
 
@@ -41,6 +44,8 @@ Usage
     torchrun --standalone --nproc_per_node=1 train.py --mode full --lr 5e-5
     (slurm/train.sh uses explicit loopback flags instead of --standalone: on a laptop whose
     host name does not resolve, --standalone hangs)
+    python train.py --mode lora --lr 1e-4 --epochs 1 --max_train_samples 20000 \
+        --skip_final_eval --output_dir runs/sweep_lora_lr1e-4     # one learning-rate trial
     python train.py --self_check          # quick checks of loss, schedule and one optimiser step
 
 References
@@ -104,10 +109,15 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--max_eval_samples", type=int, default=None,
                    help="first N dev / validation rows (debug)")
     p.add_argument("--output_dir", default=None)
+    p.add_argument("--skip_final_eval", action="store_true",
+                   help="train and choose on dev only; never touch the validation split "
+                        "(for learning-rate sweeps)")
     p.add_argument("--self_check", action="store_true")
     args = p.parse_args(argv)
     if not args.self_check and args.mode is None:
         p.error("--mode is required")
+    if args.skip_final_eval and args.mode == "zeroshot":
+        p.error("--skip_final_eval makes no sense for --mode zeroshot (nothing is trained)")
     if args.lr is None and args.mode in DEFAULT_LR:
         args.lr = DEFAULT_LR[args.mode]
     if args.output_dir is None and args.mode:
@@ -327,7 +337,8 @@ def evaluate_validation(args, model, tokenizer, splits, out_dir: str) -> Dict[st
 
 
 def main(argv=None) -> None:
-    """Train (unless zero-shot), then evaluate once on the official validation split."""
+    """Train (unless zero-shot), then evaluate once on the official validation split
+    (skipped with --skip_final_eval)."""
     args = parse_args(argv)
     if args.self_check:
         return _self_check(args.model_name)
@@ -351,19 +362,24 @@ def main(argv=None) -> None:
     if rank != 0:
         return
 
-    if training is not None:            # evaluate the saved best checkpoint, not the last epoch
-        best_dir = os.path.join(out_dir, "best")
-        model = load_checkpoint(args.mode, best_dir, args.model_name).to(device)
+    result = None
+    if training is not None:
         plot_curves(training["history"], os.path.join(out_dir, "curves.png"))
-    result = evaluate_validation(args, model, tokenizer, splits, out_dir)
-    for name, r in result["rouge"].items():
-        print(f"[validation:{name}] n={r['n']} " + " ".join(f"{k} {r[k]:.2f}" for k in ROUGE_TYPES))
-    print("inference:", {k: (round(v, 3) if isinstance(v, float) else v)
-                         for k, v in result["inference"].items()})
+    if not args.skip_final_eval:
+        if training is not None:        # evaluate the saved best checkpoint, not the last epoch
+            best_dir = os.path.join(out_dir, "best")
+            model = load_checkpoint(args.mode, best_dir, args.model_name).to(device)
+        result = evaluate_validation(args, model, tokenizer, splits, out_dir)
+        for name, r in result["rouge"].items():
+            print(f"[validation:{name}] n={r['n']} "
+                  + " ".join(f"{k} {r[k]:.2f}" for k in ROUGE_TYPES))
+        print("inference:", {k: (round(v, 3) if isinstance(v, float) else v)
+                             for k, v in result["inference"].items()})
     metrics = {"args": vars(args), "git": git_info(), "host": socket.gethostname(),
                "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
-               "torch": torch.__version__, "parameters": count_parameters(model),
-               "training": training, "validation": result}
+               "world_size": world, "torch": torch.__version__,
+               "parameters": count_parameters(model), "training": training,
+               "validation": result}
     with open(os.path.join(out_dir, "metrics.json"), "w") as f:
         json.dump(metrics, f, indent=2)
     print("wrote", os.path.join(out_dir, "metrics.json"))
