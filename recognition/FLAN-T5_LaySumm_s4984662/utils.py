@@ -138,6 +138,7 @@ def generate_summaries(model, tokenizer, dataset: LaySummDataset, batch_size: in
     batches = [order[i:i + batch_size] for i in range(0, n, batch_size)]
 
     def run(indices: List[int]) -> torch.Tensor:
+        """Generate for the reports in `indices` (one batch) and return the token ids."""
         batch = collate([dataset[i] for i in indices])
         with torch.autocast(device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"):
             return model.generate(input_ids=batch["input_ids"].to(device),
@@ -170,6 +171,7 @@ def generate_summaries(model, tokenizer, dataset: LaySummDataset, batch_size: in
 # Self-check. The ROUGE part needs no model; the generation part loads `model_name`.
 # --------------------------------------------------------------------------------------
 def _self_check(model_name: str) -> None:
+    """Check ROUGE on hand-computed examples, then generation with `model_name`."""
     close = lambda a, b: abs(a - b) < 1e-9  # noqa: E731
 
     # 1. The dilemma of spec 2.6 in numbers: an inverted meaning still scores 0.80, a correct

@@ -62,6 +62,7 @@ Then run:  python predict.py --checkpoint runs/<run name>/best"""
 
 
 def parse_args(argv=None) -> argparse.Namespace:
+    """Command-line options (see the module docstring for usage)."""
     p = argparse.ArgumentParser(description="Summarise example radiology reports")
     p.add_argument("--checkpoint", default=None, help="folder 'best' written by train.py")
     p.add_argument("--model_name", default=MODEL_NAME, help="base model (LoRA needs it)")
@@ -153,6 +154,7 @@ def plot_examples(examples: List[Dict[str, object]], title: str, path: str) -> N
 
 
 def main(argv=None) -> None:
+    """Load the model, summarise the examples, print the results and save the figure."""
     args = parse_args(argv)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model, description = load_model(args, device)

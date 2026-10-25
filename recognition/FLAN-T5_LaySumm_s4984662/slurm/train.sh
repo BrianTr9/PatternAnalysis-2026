@@ -2,6 +2,8 @@
 # train.sh - Slurm job: train and evaluate one configuration (zero-shot, LoRA or full FT).
 # Author : Trung Bao Truong (Brian Truong), student ID 49846627 (s4984662) | COMP3710 Project 2.6
 #
+# Based on the example job.sh of the course guide "COMP3710 Getting Started on Rangpur".
+#
 # Submit from the project folder on the Rangpur login node; every argument after the script
 # name is passed to train.py (see `python train.py --help`):
 #   sbatch slurm/train.sh --mode zeroshot

@@ -39,12 +39,15 @@ Usage
     python train.py --mode zeroshot
     python train.py --mode lora --lora_r 8 --lr 3e-4
     torchrun --standalone --nproc_per_node=1 train.py --mode full --lr 5e-5
+    (slurm/train.sh uses explicit loopback flags instead of --standalone: on a laptop whose
+    host name does not resolve, --standalone hangs)
     python train.py --self_check          # quick checks of loss, schedule and one optimiser step
 
 References
     FLAN-T5: Chung et al. (2024); LoRA: Hu et al. (2022); AdamW: Loshchilov & Hutter (2019).
-    Fine-tuning recipe (AdamW, warm-up, clipping): Hugging Face / T5 conventions; AEHRC used
-    AdamW with lr 2e-5 for full fine-tuning of T5-large (BioLaySumm 2025).
+    The linear warm-up/decay schedule (`lr_factor`) re-implements the common "linear schedule
+    with warm-up" (the idea of Hugging Face get_linear_schedule_with_warmup; no code copied).
+    AEHRC used AdamW with lr 2e-5 for full fine-tuning of T5-large (BioLaySumm 2025).
 
 AI assistance: drafted with Claude (Anthropic) and reviewed by the author, see the README
 section "Artificial Intelligence Usage Disclosure".
@@ -79,6 +82,7 @@ DEFAULT_LR = {"lora": 3e-4, "full": 5e-5}
 
 
 def parse_args(argv=None) -> argparse.Namespace:
+    """Command-line options; fills in the default learning rate and output folder."""
     p = argparse.ArgumentParser(description="Train / evaluate FLAN-T5 lay summarisation")
     p.add_argument("--mode", choices=("zeroshot", "lora", "full"))
     p.add_argument("--model_name", default=MODEL_NAME)
@@ -118,6 +122,7 @@ def parse_args(argv=None) -> argparse.Namespace:
 # Small pieces: seeds, distributed set-up, loss, schedule
 # --------------------------------------------------------------------------------------
 def set_seed(seed: int) -> None:
+    """Seed Python and PyTorch (CPU and GPU) for repeatable runs."""
     random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
@@ -243,6 +248,7 @@ def run_training(args, model, tokenizer, splits, rank: int, world: int, device: 
     best = {"epoch": 0, "rougeLsum": -1.0}
 
     def evaluate_dev(epoch: int) -> None:
+        """Dev loss and ROUGE after `epoch` (rank 0); keep the checkpoint if it is the best."""
         if rank == 0:
             loss = dev_loss(model, dev_loader, device)
             texts, _ = generate_summaries(model, tokenizer, dev_set, args.eval_batch_size,
@@ -321,6 +327,7 @@ def evaluate_validation(args, model, tokenizer, splits, out_dir: str) -> Dict[st
 
 
 def main(argv=None) -> None:
+    """Train (unless zero-shot), then evaluate once on the official validation split."""
     args = parse_args(argv)
     if args.self_check:
         return _self_check(args.model_name)
@@ -366,6 +373,7 @@ def main(argv=None) -> None:
 # Self-check (no dataset download needed): loss, schedule, and that training reduces the loss
 # --------------------------------------------------------------------------------------
 def _self_check(model_name: str) -> None:
+    """Check the loss, the schedule and that the training steps reduce the loss."""
     tokenizer = load_tokenizer(model_name)
     split = {"radiology_report": ["No pneumothorax.", "Mild bibasilar atelectasis. No effusion.",
                                   "Heart size is normal.", "Right lower lobe opacity."],
@@ -407,8 +415,9 @@ def _self_check(model_name: str) -> None:
             torch.nn.utils.clip_grad_norm_(params, 1.0)
             optimizer.step()
             first = loss.item() if first is None else first
-        assert float(loss) < first, (mode, first, float(loss))
-        print(f"{mode}: loss {first:.3f} -> {float(loss):.3f} in 25 steps")
+        last = loss.item()
+        assert last < first, (mode, first, last)
+        print(f"{mode}: loss {first:.3f} -> {last:.3f} in 25 steps")
     print("train self-check passed")
 
 

@@ -12,6 +12,9 @@ local Hugging Face cache (offline) to confirm that:
   * the parameter count matches the feasibility review (247,577,856) and that
     shared.weight and lm_head.weight are separate tensors (FLAN-T5 is untied).
 
+References
+    Course guide "COMP3710 Getting Started on Rangpur" (Review/HPC), Slurm and CUDA checks.
+
 AI assistance: drafted with Claude (Anthropic) and reviewed by the author, see the
 README section "Artificial Intelligence Usage Disclosure".
 """
@@ -26,7 +29,9 @@ SENTENCE = "Summarize in plain language: No pneumothorax. Mild bibasilar atelect
 
 
 def main() -> None:
-    print("python", sys.version.split()[0], "| torch", torch.__version__, "| cuda", torch.version.cuda)
+    """Print the environment, then test the model in bf16 and fp16 on the GPU."""
+    print("python", sys.version.split()[0], "| torch", torch.__version__,
+          "| cuda", torch.version.cuda)
     print("CUDA available:", torch.cuda.is_available())
     props = torch.cuda.get_device_properties(0)
     print(f"GPU: {props.name} | total VRAM GiB: {props.total_memory / 2**30:.1f}"

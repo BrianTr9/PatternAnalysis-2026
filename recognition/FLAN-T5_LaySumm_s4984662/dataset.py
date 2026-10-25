@@ -74,7 +74,8 @@ IGNORE_INDEX = -100
 
 # The prompt goes BEFORE the report so truncation can only cut the end of the report,
 # never the instruction.
-TASK_PROMPT = "Rewrite the following radiology report in plain language that a patient can understand:"
+TASK_PROMPT = ("Rewrite the following radiology report in plain language that a patient can "
+               "understand:")
 
 # Equivalent instructions used as the only data augmentation (training only). Changing words
 # inside a clinical report could flip a negation or a finding, so the report text is never
@@ -124,6 +125,7 @@ class LaySummDataset(Dataset):
                  max_source_len: int = MAX_SOURCE_LEN, max_target_len: int = MAX_TARGET_LEN,
                  with_targets: bool = True, augment: bool = False,
                  prompt_variants: Sequence[str] = TASK_PROMPT_VARIANTS) -> None:
+        """See the class docstring for the arguments."""
         self.tokenizer = tokenizer
         self.prompt = prompt
         self.augment = augment
@@ -141,6 +143,7 @@ class LaySummDataset(Dataset):
                                  "split); build the dataset with with_targets=False")
 
     def __len__(self) -> int:
+        """Number of reports."""
         return len(self.reports)
 
     def set_epoch(self, epoch: int) -> None:
@@ -154,6 +157,7 @@ class LaySummDataset(Dataset):
         return self.prompt
 
     def __getitem__(self, index: int) -> Dict[str, object]:
+        """Tokenise report `index` (and its summary when the dataset has targets)."""
         source = build_source_text(self.reports[index], self.prompt_for(index))
         # truncation=True cuts the text but the tokenizer still appends </s> afterwards.
         encoded = self.tokenizer(source, max_length=self.max_source_len, truncation=True)
@@ -179,11 +183,13 @@ def make_collate_fn(pad_token_id: int):
     """
 
     def pad(sequences: List[List[int]], value: int) -> torch.Tensor:
+        """Right-pad every sequence to the longest one in the batch with `value`."""
         width = max(len(seq) for seq in sequences)
         return torch.tensor([seq + [value] * (width - len(seq)) for seq in sequences],
                             dtype=torch.long)
 
     def collate(batch: List[Dict[str, object]]) -> Dict[str, torch.Tensor]:
+        """Turn a list of items into one batch of tensors."""
         out = {"input_ids": pad([b["input_ids"] for b in batch], pad_token_id),
                "attention_mask": pad([b["attention_mask"] for b in batch], 0),
                "index": torch.tensor([b["index"] for b in batch], dtype=torch.long)}
@@ -259,17 +265,18 @@ def session_duplicate_rows(splits) -> Dict[str, List[int]]:
     summaries differ, so one of the two (report, summary) pairs is often mismatched. These
     rows are excluded from the clinical-safety autopsy pool (data errors, not model errors).
     """
-    counts = Counter(p for part in splits.values()
-                     for p, o in zip(list(part[IMAGE_COLUMN]), list(part[ORIGIN_COLUMN])) if o == BIMCV)
-    return {name: [i for i, (p, o) in enumerate(zip(list(part[IMAGE_COLUMN]), list(part[ORIGIN_COLUMN])))
-                   if o == BIMCV and counts[p] > 1]
-            for name, part in splits.items()}
+    sessions = {name: list(zip(list(part[IMAGE_COLUMN]), list(part[ORIGIN_COLUMN])))
+                for name, part in splits.items()}      # (images_path, source) per row
+    counts = Counter(p for rows in sessions.values() for p, o in rows if o == BIMCV)
+    return {name: [i for i, (p, o) in enumerate(rows) if o == BIMCV and counts[p] > 1]
+            for name, rows in sessions.items()}
 
 
 # --------------------------------------------------------------------------------------
 # Self-check. Run on Rangpur; it only needs the tokenizer (a few MB, no model weights).
 # --------------------------------------------------------------------------------------
 def _self_check(model_name: str, real: bool) -> None:
+    """Synthetic checks of the data pipeline; with `real`, also the real splits."""
     from transformers import AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)

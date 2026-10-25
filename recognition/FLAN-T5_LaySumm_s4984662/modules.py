@@ -138,17 +138,20 @@ def load_checkpoint(mode: str, directory: str, model_name: str = MODEL_NAME):
 # runs on a tiny model; for FLAN-T5-base it must equal the feasibility review (884,736).
 # --------------------------------------------------------------------------------------
 def _expected_lora_params(model_name: str, rank: int) -> int:
+    """LoRA parameters expected for `rank`: r * (d_model + attention width) per q and v matrix."""
     cfg = AutoConfig.from_pretrained(model_name)
     blocks = cfg.num_layers + 2 * cfg.num_decoder_layers   # enc self, dec self, dec cross
     return blocks * len(LORA_TARGETS) * rank * (cfg.d_model + cfg.num_heads * cfg.d_kv)
 
 
 def _self_check(model_name: str) -> None:
+    """Check parameter counts, embedding sharing, LoRA gradients and checkpoint round trips."""
     tokenizer = load_tokenizer(model_name)
     batch = tokenizer(["Summarize: No pneumothorax."], return_tensors="pt")
     labels = tokenizer(["There is no collapsed lung."], return_tensors="pt").input_ids
 
     def logits(model):
+        """Teacher-forced logits of the fixed example batch."""
         with torch.no_grad():
             return model(**batch, labels=labels).logits
 

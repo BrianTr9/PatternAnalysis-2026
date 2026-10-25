@@ -3,6 +3,7 @@
 # Author : Trung Bao Truong (Brian Truong), student ID 49846627 (s4984662) | COMP3710 Project 2.6
 #
 # Submit from the project folder:  sbatch slurm/env_check.sh
+# Based on the example job.sh of the course guide "COMP3710 Getting Started on Rangpur".
 #
 # Rangpur behaviour observed on 2026-10-09 (the course guide's example job.sh, which has
 # --mem=16G and no --account, did not run as written):
