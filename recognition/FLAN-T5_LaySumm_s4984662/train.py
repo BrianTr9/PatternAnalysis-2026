@@ -27,6 +27,10 @@ Description
     Optimiser: AdamW, linear warm-up then linear decay, gradient clipping, bf16 autocast on GPU
     with fp32 weights. Checkpoint choice: the epoch with the highest development ROUGE-Lsum;
     only that one checkpoint is kept (home quota).
+    Memory: T5 attention memory grows with the square of the padded length and a few reports
+    reach the 512-token cap, so a long batch decides the peak. `--grad_accum N` splits one
+    optimiser step into N micro-batches (gradients are summed) to cut the peak at the same
+    effective batch; the loss is the mean over tokens of each micro-batch, averaged.
 
     Distributed: run with `torchrun --standalone --nproc_per_node=N train.py ...`. With one
     process it behaves as a plain script; with N > 1 each process holds a model copy (DDP) and
@@ -94,7 +98,10 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--lr", type=float, default=None, help="default depends on --mode")
     p.add_argument("--lora_r", type=int, default=8, help="LoRA rank (alpha = 2 * r)")
-    p.add_argument("--batch_size", type=int, default=16, help="per process")
+    p.add_argument("--batch_size", type=int, default=16, help="micro-batch per process")
+    p.add_argument("--grad_accum", type=int, default=1,
+                   help="micro-batches per optimiser step (effective batch = batch_size x "
+                        "grad_accum x processes); lowers peak memory at equal effective batch")
     p.add_argument("--eval_batch_size", type=int, default=32)
     p.add_argument("--warmup_ratio", type=float, default=0.05)
     p.add_argument("--weight_decay", type=float, default=0.01)
@@ -246,7 +253,8 @@ def run_training(args, model, tokenizer, splits, rank: int, world: int, device: 
 
     trainable = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(trainable, lr=args.lr, weight_decay=args.weight_decay)
-    total_steps = args.epochs * len(loader)
+    steps_per_epoch = -(-len(loader) // args.grad_accum)    # optimiser steps, rounded up
+    total_steps = args.epochs * steps_per_epoch
     warmup = max(1, int(args.warmup_ratio * total_steps))
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer, lambda s: lr_factor(s, total_steps, warmup))
@@ -264,7 +272,7 @@ def run_training(args, model, tokenizer, splits, rank: int, world: int, device: 
             texts, _ = generate_summaries(model, tokenizer, dev_set, args.eval_batch_size,
                                           args.num_beams, args.max_new_tokens)
             rouge = compute_rouge(texts, dev_refs)
-            history["dev_step"].append(epoch * len(loader))
+            history["dev_step"].append(epoch * steps_per_epoch)
             history["dev_loss"].append(loss)
             history["dev_epoch"].append(epoch)
             history["dev_rouge"].append(rouge)
@@ -285,17 +293,20 @@ def run_training(args, model, tokenizer, splits, rank: int, world: int, device: 
         ddp.train()
         reset_peak_vram()
         start, window = time.perf_counter(), []
-        for batch in loader:
-            optimizer.zero_grad(set_to_none=True)
+        for i, batch in enumerate(loader):
+            if i % args.grad_accum == 0:
+                optimizer.zero_grad(set_to_none=True)
             loss, _ = token_loss(ddp, batch, device)
             if not torch.isfinite(loss):
                 raise RuntimeError(f"non-finite loss at step {step}")
-            loss.backward()
+            (loss / args.grad_accum).backward()      # gradients add up over the micro-batches
+            window.append(loss.item())
+            if (i + 1) % args.grad_accum and i + 1 < len(loader):
+                continue                              # keep accumulating
             torch.nn.utils.clip_grad_norm_(trainable, args.max_grad_norm)
             optimizer.step()
             scheduler.step()
             step += 1
-            window.append(loss.item())
             if rank == 0 and step % args.log_every == 0:
                 mean = sum(window) / len(window)
                 history["train_step"].append(step)
