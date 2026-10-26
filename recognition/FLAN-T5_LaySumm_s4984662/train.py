@@ -208,6 +208,16 @@ def git_info() -> Dict[str, object]:
         return {"commit": "unknown", "dirty": None}
 
 
+def library_versions() -> Dict[str, object]:
+    """Versions that can change a number (kept with the results; the platform may vary)."""
+    import platform
+
+    import peft
+    import transformers
+    return {"python": platform.python_version(), "transformers": transformers.__version__,
+            "peft": peft.__version__, "cuda": torch.version.cuda}
+
+
 def plot_curves(history: Dict[str, list], path: str) -> None:
     """Left: train loss (mean per logging window) and dev loss. Right: dev ROUGE per epoch."""
     import matplotlib
@@ -388,7 +398,7 @@ def main(argv=None) -> None:
                              for k, v in result["inference"].items()})
     metrics = {"args": vars(args), "git": git_info(), "host": socket.gethostname(),
                "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
-               "world_size": world, "torch": torch.__version__,
+               "world_size": world, "torch": torch.__version__, "versions": library_versions(),
                "parameters": count_parameters(model), "training": training,
                "validation": result}
     with open(os.path.join(out_dir, "metrics.json"), "w") as f:
