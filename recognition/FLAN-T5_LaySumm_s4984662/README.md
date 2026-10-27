@@ -16,10 +16,10 @@ Patients increasingly read their own chest X-ray reports, which are written for 
 | Generation time (s / report) | 0.377 | 0.172 | 0.162 | **0.101** |
 | Reading grade (Flesch-Kincaid; source report 14.4) | 15.1 | 7.6 | 7.5 | 7.5 |
 
-* Fine-tuning adds **41 to 44 ROUGE-Lsum points** over zero-shot and brings the text from the source's reading level (grade 14 to 15) to that of the reference summaries (grade 7.5). Full FT is best on every ROUGE tier and is the fastest to generate; LoRA trains in 0.4 to 0.7% of the parameters and its checkpoint is 3.4 to 6.8 MB instead of about 1 GB.
-* 45.1% of the official validation reports also occur in the training set, so the full-validation score is inflated: by only **3 to 4 points** here (full validation against the clean tier), far less than the fine-tuning gain.
-* **ROUGE did not catch the clinically relevant errors found in the autopsy:** an invented cause and a wrong anatomical location in a case scoring 0.64 to 0.72, a self-contradicting sentence, a silently truncated long report that lost its conclusion ("tumor progression"), and outputs that copy the source instead of simplifying it (Section 9.3).
-* **Recommendation (Section 9.5): no-go for autonomous patient-facing use; conditional go for a clinician-in-the-loop drafting pilot** behind input, output and verification guardrails.
+* Fine-tuning adds **41 to 44 ROUGE-Lsum points** and moves the text from the source's reading level (grade 14 to 15) to that of the references (grade 7.5). Full FT is best on every tier and fastest to generate; LoRA trains 0.4 to 0.7% of the parameters and its checkpoint is 3.4 to 6.8 MB instead of about 1 GB.
+* 45.1% of the official validation reports also occur in training. This inflates the full-validation score by only **3 to 4 points** (full validation against the clean tier).
+* **ROUGE missed the clinically relevant errors found in the autopsy:** an invented cause and a wrong location in a case scoring 0.64 to 0.72, a self-contradicting sentence, a long report silently truncated before its conclusion, and outputs that copy the source (Section 9.3).
+* **Recommendation (Section 9.5): no-go for autonomous patient-facing use; conditional go for a clinician-in-the-loop drafting pilot** behind guardrails.
 
 ![Results overview](figures/results.png)
 
@@ -101,18 +101,18 @@ Each module has a self-check: run `python dataset.py`, `python modules.py` or `p
 
 ## 4. Dependencies and reproducibility
 
-**Exact versions** (`requirements.txt`; the runs reported here used these on an NVIDIA A100-PCIE-40GB node of the UQ Rangpur cluster, Python 3.11.15, CUDA 13.0): `torch==2.13.0`, `transformers==5.19.0`, `peft==0.21.2`, `datasets==5.1.0`, `rouge_score==0.1.2`, `sentencepiece==0.2.2`, `matplotlib==3.11.2`, `numpy==2.4.6`. Each `metrics.json` records the versions, GPU, host and git commit (with a `dirty` flag) of the run that produced it.
+**Exact versions** (`requirements.txt`; the reported runs used them on one NVIDIA A100-PCIE-40GB node of UQ Rangpur, Python 3.11.15, CUDA 13.0): `torch==2.13.0`, `transformers==5.19.0`, `peft==0.21.2`, `datasets==5.1.0`, `rouge_score==0.1.2`, `sentencepiece==0.2.2`, `matplotlib==3.11.2`, `numpy==2.4.6`. Every `metrics.json` records versions, GPU, host and git commit (with a `dirty` flag).
 
 ```bash
 conda create -n torch python=3.11 && conda activate torch
-pip install -r requirements.txt        # on a laptop install the CPU/MPS build of torch 2.13.0
+pip install -r requirements.txt        # on a laptop use the CPU/MPS build of torch 2.13.0
 ```
 
-**Data and weights are not in the repository.** The dataset (`BioLaySumm/BioLaySumm2025-LaymanRRG-opensource-track`) and `google/flan-t5-base` download from the Hugging Face Hub on first use. On Rangpur the compute nodes are offline, so download once on the login node and set `HF_HOME`/`HF_HUB_OFFLINE=1` (done in `slurm/train.sh`). Checkpoints are written to `runs/` (git-ignored).
+**Data and weights are not in the repository.** The dataset (`BioLaySumm/BioLaySumm2025-LaymanRRG-opensource-track`) and `google/flan-t5-base` download from the Hugging Face Hub on first use (Rangpur compute nodes are offline: download once on the login node; `slurm/train.sh` sets `HF_HOME` and `HF_HUB_OFFLINE=1`). Checkpoints go to `runs/` (git-ignored). Without `--checkpoint`, `predict.py` runs the zero-shot model, so it works from a clean clone.
 
-**Determinism.** Seed 0 fixes the training order, the dev split, the demo draw and the autopsy draw. Unit-level behaviour is deterministic. GPU kernels are not bit-exact, so a rerun can differ in the last digits. The zero-shot baseline gave identical ROUGE (to the printed digits) on two different GPUs (Colab A100-SXM4 and Rangpur A100-PCIE), which is the evidence that the pipeline is reproducible across platforms. Training runs once per configuration (one seed): differences of about 0.6 points (LoRA r=8 vs r=16) are within what a second seed could change.
+**Determinism.** Seed 0 fixes the training order, dev split, demo draw and autopsy draw; GPU kernels are not bit-exact, so reruns can differ in the last digits. Zero-shot ROUGE was identical on two different GPUs (Colab A100-SXM4, Rangpur A100-PCIE). Each configuration was trained once, so differences of about 0.6 points are not conclusive.
 
-**Checks that need no GPU and no model weights** (only the few-MB tokenizer): `python dataset.py` (synthetic data) and `python autopsy.py --self_check`. With the weights and the dataset: `python dataset.py --real`, `python modules.py`, `python utils.py`, `python train.py --self_check` (loss equals the model's own loss, learning-rate schedule, loss decreases on a fixed batch in full and LoRA mode).
+**Checks.** No GPU or weights needed (tokenizer only): `python dataset.py`, `python autopsy.py --self_check`. With weights and data: `python dataset.py --real`, `python modules.py`, `python utils.py`, `python train.py --self_check` (loss equals the model's own loss, schedule, loss falls on a fixed batch in full and LoRA mode).
 
 ## 5. Usage
 
@@ -121,71 +121,64 @@ pip install -r requirements.txt        # on a laptop install the CPU/MPS build o
 python train.py --mode lora --epochs 1 --max_train_samples 200 --max_eval_samples 100 \
                 --output_dir runs/smoke
 
-# One configuration (this is what slurm/train.sh runs, through torchrun)
+# One configuration, as slurm/train.sh runs it (torchrun, one process per GPU)
 torchrun --nnodes=1 --nproc_per_node=1 --local_addr=127.0.0.1 \
          --rdzv_backend=c10d --rdzv_endpoint=127.0.0.1:29500 \
          train.py --mode full --lr 3e-4 --batch_size 8 --grad_accum 2
 
-# The four final runs on Rangpur (zero-shot, LoRA r=8, LoRA r=16, full FT)
-bash slurm/submit_final.sh
+bash slurm/submit_final.sh      # the four final runs on Rangpur (zero-shot, LoRA r=8/16, full FT)
 
 # Learning-rate sweep on the development set only (never touches validation)
 sbatch slurm/train.sh --mode lora --lr 1e-3 --epochs 1 --max_train_samples 20000 \
-                      --skip_final_eval --batch_size 8 --grad_accum 2 --output_dir runs/sweep_lora_1e-3
+       --skip_final_eval --batch_size 8 --grad_accum 2 --output_dir runs/sweep_lora_1e-3
+
+python predict.py --checkpoint runs/full_lr3e-4/best      # demo; also --report "text"
+python autopsy.py --runs_dir runs --out_dir autopsy       # autopsy evidence (no GPU needed)
+python plot_results.py --runs_dir runs --out_dir figures  # figures of this README
 ```
 
-Every `train.py` option has a documented default (`python train.py --help`). A run writes `best/` (checkpoint), `curves.png`, `metrics.json` and `val_predictions.jsonl` to `runs/<name>/`. With more than one process, `train.py` uses `DistributedSampler` and `DistributedDataParallel`; only one GPU per node was available on Rangpur, so all reported runs have `world_size = 1`.
+`python train.py --help` documents every option. A run writes `best/`, `curves.png`, `metrics.json` and `val_predictions.jsonl` to `runs/<name>/`. With more than one process `train.py` uses `DistributedSampler` and `DistributedDataParallel`; Rangpur gives one GPU per node, so all reported runs have `world_size = 1`.
 
-**Example inputs and outputs** (`python predict.py --checkpoint runs/full_lr3e-4/best`, examples drawn with a fixed seed from validation and test, not hand-picked):
+**Example inputs and outputs** (`predict.py` draws examples with a fixed seed from validation and test; they are not hand-picked):
 
 | Report (input) | Full FT output |
 |---|---|
 | Aortic elongation. Subsegmental atelectasis in the left base. No significant findings. (test) | The aorta, which is the main blood vessel carrying blood from the heart, is elongated. There is a small area of lung collapse at the base of the left lung. No other significant issues are found. |
 | Clinical diagnosis: syncope. Technique: No consolidation or pleural effusion is identified. Old subcapital fracture of the left humerus. (validation 673, ROUGE-Lsum 0.69) | The patient came in because they fainted. The x-ray didn't show any signs of pneumonia or fluid around the lungs. There's an old broken bone in the upper arm on the left side. |
 
-Note the soft spots even in this fixed draw: "consolidation" became "pneumonia" in the second row, and "No signs of pneumothorax" in test report 8376 became "no signs of air in the lungs". Validation examples are also scored against their reference; test examples have no reference (blind test set). `python predict.py --report "Mild bibasilar atelectasis. No pneumothorax."` summarises any text, and without `--checkpoint` it falls back to the zero-shot model.
+Even in this fixed draw there are soft spots: "consolidation" became "pneumonia", and "No signs of pneumothorax" in test report 8376 became "no signs of air in the lungs". Test examples have no reference (blind test set), so no ROUGE is shown for them.
 
 ![Demo](figures/predictions_full_ft.png)
 
-```bash
-# Autopsy evidence (reads runs/*/val_predictions.jsonl; no GPU, no model)
-python autopsy.py --runs_dir runs --out_dir autopsy
-# Figures of this README
-python plot_results.py --runs_dir runs --out_dir figures
-```
-
 ## 6. Data and pre-processing
 
-**Dataset.** BioLaySumm 2025 LaymanRRG, open-source track [1, 6, 7]: chest X-ray reports (PadChest and BIMCV-COVID19, translated to English, and Open-i) paired with lay summaries generated by GPT-4o. Train 150,454, validation 10,000, test 10,537 rows. **The test summaries are withheld**, so all ROUGE numbers are on validation. The summaries are *silver labels* (model-written, not clinician-written).
+**Dataset.** BioLaySumm 2025 LaymanRRG, open-source track [1, 6, 7]: chest X-ray reports (PadChest and BIMCV-COVID19, translated to English, and Open-i) with GPT-4o-written lay summaries (silver labels, not clinician-written). Train 150,454, validation 10,000, test 10,537. **Test summaries are withheld**, so all ROUGE numbers are on validation.
 
-**Pre-processing** (`dataset.py`):
-
-| Step | Choice | Reason |
+| Step (`dataset.py`) | Choice | Reason |
 |---|---|---|
-| Prompt | Fixed instruction placed **before** the report | FLAN-T5 is instruction-tuned; if the text must be cut, the instruction is never lost |
+| Prompt | Fixed instruction placed **before** the report | FLAN-T5 is instruction-tuned; truncation can never remove the instruction |
 | Truncation | 512 tokens (source and target) | Only 0.19% of sources and 0.24% of targets are longer |
-| Target masking | Padding in the labels set to -100; `</s>` kept | The loss ignores padding, but the model still learns to stop |
-| Augmentation | Training cycles through four equivalent instructions (`variants[(index + epoch) % 4]`); evaluation always uses one fixed prompt | The report text is never edited, because changing words in a clinical report can flip a negation |
-| Tokenisation | On the fly, batch-padded | No tokenised copy of 150k pairs in memory |
+| Target masking | Padding in labels = -100; `</s>` kept | Loss ignores padding, the model still learns to stop |
+| Augmentation | Training cycles through four equivalent instructions; evaluation uses one fixed prompt | Report text is never edited: changing words in a clinical report can flip a negation |
+| Tokenisation | On the fly, padded per batch | No tokenised copy of 150k pairs in memory |
 
-**Split and leakage.** The spec asks for leakage-free splits. The official split is *not*: 45.1% of validation reports appear verbatim in training (mostly short normal-study templates such as "No significant findings."), and 39.0% of validation and 26.4% of test rows belong to a study (image-study id, BIMCV session) that also occurs in training. There is no patient id, so study is the strongest available proxy. A lookup table that returns the most common training summary of the same report already scores ROUGE-1 78.1 on those rows (no model involved). The teaching staff recommended keeping the official split so results stay comparable; the problem was handled instead by
+**Split and leakage.** The spec asks for leakage-free splits; the official split is *not*: 45.1% of validation reports appear verbatim in training (mostly short normal-study templates such as "No significant findings."), and 39.0% of validation and 26.4% of test rows share a study (image-study id or BIMCV session; no patient id exists) with training. A lookup table returning the most common training summary of the same report already scores ROUGE-1 78.1 on those rows. Staff recommended keeping the official split for comparability, so the problem is handled by:
 
-1. **Three nested evaluation tiers** on the official validation split, so memorising and understanding can be told apart: *full* (10,000), *report not in train* (5,494), and *clean* (4,037: new report **and** new study).
-2. **A development set cut from the training data**, 1,000 rows whole-study at a time, used for every choice (learning rate, checkpoint). It shares no study and no report text with the remaining training rows (checked directly). Validation is used **once**, at the end.
-3. **Excluding BIMCV rows whose session id repeats** from the dev set and from the autopsy: in all 1,201 such sessions the two rows carry identical report text but different summaries, so one of the two pairs is mismatched (train 2,226 rows, validation 146, test 30).
+1. **Three nested evaluation tiers** on validation: *full* (10,000), *report not in train* (5,494) and *clean* (4,037: new report **and** new study).
+2. **A 1,000-row development set cut from training**, whole studies at a time, used for every choice (learning rate, checkpoint); it shares no study and no report text with the remaining training rows (checked directly). Validation is used **once**, at the end.
+3. **Excluding BIMCV sessions that repeat** from the dev set and the autopsy: in all 1,201 such sessions both rows carry the same report text but different summaries, so one pair is mismatched (train 2,226 rows, validation 146, test 30).
 
-**Data artefacts found along the way** (all counted directly on the data): 64 training and 9 validation reference summaries contain Chinese characters; 440 training and 31 validation references have a second summary glued on after a `": "` (the first part being a near-copy of the source, copy ratio 0.97). The fine-tuned models learn the second artefact (Section 9.3). The OpenI study key is one per row, so OpenI studies shared across rows are not detected (OpenI is 1.5% of training rows).
+**Data artefacts found** (counted directly): 64 train and 9 validation references contain Chinese characters; 440 train and 31 validation references have a second summary glued on after `": "` (the first part is a near-copy of the source, copy ratio 0.97). The fine-tuned models learn the second artefact (Section 9.3). The OpenI study key is one per row, so shared OpenI studies are not detected (1.5% of training rows).
 
 ## 7. Model and training
 
-* **Model.** `google/flan-t5-base`, 247,577,856 parameters, with the encoder, decoder and `shared` embeddings tied explicitly after loading: in `transformers` 5.19.0 the tie flag of the FLAN-T5 config silently re-initialises the encoder/decoder embeddings at random (found because the parameter count was two embedding matrices too high; `modules.py`).
+* **Model.** `google/flan-t5-base` [3, 4] via the Hugging Face libraries [10], 247,577,856 parameters. The encoder, decoder and `shared` embeddings are tied explicitly after loading: in `transformers` 5.19.0 the FLAN-T5 tie flag silently re-initialises the encoder/decoder embeddings at random (found because the parameter count was two embedding matrices too high; `modules.py`).
 * **LoRA** (`peft`): task type `SEQ_2_SEQ_LM`, target modules `q` and `v` of all 36 attention blocks, `r` in {8, 16}, `alpha = 2r`, dropout 0.05. Trainable parameters `r x (in + out)` per matrix x 72 matrices: 884,736 (r=8) and 1,769,472 (r=16), i.e. 0.357% and 0.715%, both under the 1% ceiling of the feasibility review (r=32 would be 1.43%).
 * **Optimisation.** Cross-entropy computed by hand from the logits (fp32, `ignore_index=-100`); AdamW (weight decay 0.01); linear warm-up over 5% of the steps then linear decay to 0; gradient clipping at 1.0; **bf16 autocast on fp32 weights**; 3 epochs; micro-batch 8 with gradient accumulation 2 (effective batch 16, 28,023 optimiser steps); seed 0.
 * **Model selection.** After each epoch ROUGE-Lsum is computed on the dev set and the best epoch is kept (epoch 3 in every run, dev still improving, so the models may be under-trained).
-![Training curves of the full fine-tuning run (left: loss, right: dev ROUGE) and of LoRA r=16](figures/curves_full_ft.png)
-![LoRA r=16 training curves](figures/curves_lora_r16.png)
+![Full fine-tuning: training and dev loss (left), dev ROUGE per epoch (right)](figures/curves_full_ft.png)
 
-* **Learning rates** were chosen on the dev set with short runs (1 epoch on 20,000 training pairs, A100). Both modes needed larger learning rates than the usual defaults, and the best value was still at the edge of the grid, so the optimum was not bracketed (a limitation):
+**Learning rates** were chosen on the dev set with short runs (1 epoch on 20,000 training pairs, A100). The best value was the largest tried in both modes, so the optimum was not bracketed (a limitation):
 
 | Mode | LR | dev ROUGE-Lsum |
 |---|---|---|
@@ -193,7 +186,7 @@ python plot_results.py --runs_dir runs --out_dir figures
 | LoRA r=8 | 1e-4 / 3e-4 / 1e-3 / **3e-3** | 48.94 / 54.19 / 58.83 / **62.05** |
 | Full FT | 2e-5 / 5e-5 / 1e-4 / **3e-4** | 57.41 / 61.73 / 63.90 / **66.12** |
 
-  LoRA r=16 reuses the r=8 learning rate (not swept separately). LoRA and full FT therefore have different learning rates, which the experiment design allows because LoRA typically needs a larger one.
+LoRA r=16 reuses the r=8 learning rate. LoRA and full FT use different learning rates because LoRA typically needs a larger one.
 
 ## 8. Why this is a Hard problem
 
@@ -203,7 +196,7 @@ An encoder-decoder with 247.6M parameters rather than a classifier; two adaptati
 
 ### 9.1 Quantitative benchmark (identical splits, prompt and decoding)
 
-ROUGE x 100 (F-measure, per-example mean, stemmer on; ROUGE-Lsum with one sentence per line). One run per configuration, validation split, Rangpur A100-PCIE-40GB.
+ROUGE [8] x 100 (F-measure, per-example mean, stemmer on; ROUGE-Lsum with one sentence per line). One run per configuration, validation split, Rangpur A100-PCIE-40GB.
 
 | Tier | Configuration | ROUGE-1 | ROUGE-2 | ROUGE-L | ROUGE-Lsum |
 |---|---|---|---|---|---|
@@ -224,9 +217,9 @@ Every number in this table was recomputed from the stored per-report predictions
 
 **Reading the table.**
 * Fine-tuning gives +41 to +44 ROUGE-Lsum. The zero-shot model mostly **copies the report back** (its output shares 92% of its words with the input, against 33 to 35% for the fine-tuned models), so it scores about 30 whatever the tier.
-* Full FT > LoRA r=16 > LoRA r=8 on every tier, a stable order but with single runs and different learning rates: the 0.6-point gap between r=8 and r=16 is not conclusive, and the 2.3-point gap between LoRA and full FT is a statement about *these* settings (q and v only, one learning rate each), not about LoRA in general.
+* Full FT > LoRA r=16 > LoRA r=8 on every tier. With single runs, the 0.6-point gap between r=8 and r=16 is not conclusive, and the 2.3-point gap between LoRA and full FT holds for *these* settings (q and v only, one learning rate each), not for LoRA in general.
 * The leakage effect is small: full validation exceeds the clean tier by 3.4 (full FT), 4.2 (LoRA r=8) and 4.1 (r=16) points. The unseen-report and clean tiers differ by at most 0.2 points.
-* Reference point, not a comparison: the best open-track system (T5-large, no LoRA, test set) reports ROUGE about 66.9 [2]; it differs in model size and data split (test vs validation), so the numbers cannot be compared directly.
+* Reference point only: the best open-track system (T5-large, no LoRA, test set) reports ROUGE about 66.9 [2]; model size and split (test vs validation) differ, so it is not a comparison.
 
 ### 9.2 Resource profiling
 
@@ -244,31 +237,32 @@ All four rows: one A100-PCIE-40GB, micro-batch 8 x gradient accumulation 2, gene
 
 ### 9.3 Clinical safety autopsy
 
-**Why not ROUGE.** ROUGE counts shared words. The self-check in `utils.py` shows it: the reference "there is no collapsed lung" scores 0.80 for the inverted "there is a collapsed lung" and only 0.40 for the correct paraphrase "the lung has not collapsed".
+**Why not ROUGE.** ROUGE counts shared words. The self-check in `utils.py` shows it: for the reference "there is no collapsed lung", the inverted "there is a collapsed lung" scores 0.80 and the correct paraphrase "the lung has not collapsed" only 0.40.
 
-**How the cases were chosen** (`autopsy.py`; the rule was written before any case was inspected, with a fixed seed, so the selection is not cherry-picking). The pool is the clean tier minus the repeated-session BIMCV rows, minus the four validation rows already shown by `predict.py`, minus reports under 8 words (3,877 rows). One case is drawn from each stratum:
+**Case selection** (`autopsy.py`). The rule was written, with a fixed seed, before any case was inspected, so the choice is not cherry-picked. The pool is the clean tier minus repeated-session BIMCV rows, the four validation rows already shown by `predict.py`, and reports under 8 words (3,877 rows). One case is drawn from each stratum:
 
-| Stratum | Rule | Question it probes |
+| Stratum | Rule | Probes |
 |---|---|---|
 | A | full-FT ROUGE-Lsum >= 0.70, but negation or hedge differs between source and output | does a high score hide a change of meaning? |
 | B | source names an acute finding and the output is much shorter | omission of an acute finding |
 | C | lowest 5% of full-FT ROUGE-Lsum | failure tail |
-| D | LoRA output copies the source (>= 90% of its words) but the reference does not | layperson readability |
+| D | LoRA copies the source (>= 90% of its words), the reference does not | layperson readability |
 | E | random | control |
 
-Two honest notes. Stratum B was calibrated badly: lay summaries are usually *longer* than the report, so no row met the 0.6 ratio and the threshold relaxed to 0.8 (the rule's one allowed relaxation) left a single candidate, a 498-word CT report. And a first run of the selection had a regex bug (contractions such as "didn't" were not recognised); fixing it changed the stratum-A draw, and the earlier case, which had already been read, was discarded. The cases were read without clinical qualification (drafted with AI assistance and reviewed by the author, not by a radiologist); a clinician could grade differently.
+Two honest notes. Stratum B was calibrated badly: lay summaries are usually *longer* than their report, so no row met the 0.6 length ratio and, after the one allowed relaxation (0.8), a single candidate remained, a 498-word CT report. A first run of the selection also had a regex bug (contractions such as "didn't" were missed); fixing it changed the stratum-A draw and the earlier, already-read case was discarded. The readings below are non-clinical (drafted with AI assistance and reviewed by the author, not by a radiologist).
 
-| Case (validation row) | Source in short | What the models did | Findings | Root cause |
-|---|---|---|---|---|
-| **A** (6886) | "Prominent hila of vascular origin are observed" (plus sternotomy sutures, cardiomegaly). ROUGE-Lsum: zero-shot 0.28, LoRA 0.64, **full FT 0.72** | LoRA: "...prominent, likely due to **increased blood flow**". Full FT: "blood vessels **at the lung bases** are prominent, likely due to their origin". | (a) LoRA **invents a cause** the source does not give; full FT **moves the finding** (hila are central, not basal). Both **add a hedge** ("likely") to a statement the source makes without one. (c) Readable. Zero-shot copies the jargon. | Rare term mapped to a template phrase; the *reference itself* adds "likely due to vascular reasons", which the models imitate. ROUGE ranks the model with the location error higher. |
-| **B** (5788) | 498-word thoracoabdominopelvic CT with a conclusion ending in tumour progression. ROUGE-Lsum: 0.51 / 0.50 / 0.55 | All three outputs stop at the same point, before the conclusion. LoRA: "They are **the same size; however, they have gotten bigger**" (source: stable in *number*, larger in size). Full FT: "contiguous loop" becomes "**congested** small intestine"; "suspicious for malignancy" is cut to "no new spots suspicious". | (a) a self-contradicting sentence (LoRA) and a mistranslated term (full FT); (b) **omission of the conclusion "tumor progression"**; (c) full FT keeps "ileocecal valve", "presacral", "iliac fossa". | **Input truncation at 512 tokens with no warning** (very probably; the source is far longer and every output ends at the same place), plus little training signal for long reports (only 4 of 10,000 validation sources have more than 350 words). The reference also contains a Chinese-language paragraph (data artefact). |
-| **C** (512) | Cardiomegaly (left ventricle), increased peribronchovascular markings, a lingular area "possibly" related to COVID-19. ROUGE-Lsum 0.12 / 0.13 / 0.12 | Outputs follow the source faithfully, keep "could be related to possible COVID-19" and the enlarged heart; "lingula" stays unexplained. | The faithful outputs get the **lowest** score: the reference ("both lower parts of the lungs show areas of solid cloudiness") omits the heart and COVID and places the finding differently, so it looks like a mismatched pair. Zero-shot, which copies the source word for word, scores the same. | **Reference/label defect**: ROUGE punishes the faithful model and cannot distinguish a copy from a rewrite. |
-| **D** (2118) | "Air trapping is noted. A pseudonodular image in the lingula, likely a vascular artifact..." ROUGE-Lsum 0.32 / 0.40 / 0.57 | LoRA copies the source verbatim. Full FT copies it too and then appends `": "There is a condition where air is trapped in the lungs...` with a proper lay version. | (c) **No simplification** ("pseudonodular", "lingula" untouched); (a) none, hedge "likely" kept; a **second summary glued after the first**. | A training artefact: 440 training references (0.29%) are `"<near-copy of source>": "<lay text>"`, and the model reproduces the pattern (full FT 63 times in 10,000 validation outputs, LoRA r=16 31 times, zero-shot 0). |
-| **E** (5402) | "Infiltrate likely of infectious or inflammatory origin. Chronic parenchymal changes." ROUGE-Lsum 0.17 / 0.72 / 0.81 | Full FT: "There is **likely** an infection or inflammation... long-term changes". LoRA: "There is **a sign of** infection or inflammation...". | Faithful; the LoRA wording is slightly firmer. | Control case: the models usually behave. |
+| Case (row) | Source and scores (ROUGE-Lsum: zero-shot / LoRA / full FT) | What went wrong | Root cause |
+|---|---|---|---|
+| **A** (6886) | "Prominent hila of vascular origin are observed" (+ sternotomy sutures, cardiomegaly). 0.28 / 0.64 / **0.72** | (a) LoRA **invents a cause** ("likely due to increased blood flow"); full FT **moves the finding** to "the lung bases" (hila are central). Both **add a hedge** ("likely") the source does not have. | Rare term mapped to a template phrase; the *reference itself* adds "likely due to vascular reasons" and the models imitate it. ROUGE ranks the output with the wrong location higher. |
+| **B** (5788) | 498-word thoracoabdominopelvic CT ending in tumour progression. 0.51 / 0.50 / 0.55 | All outputs stop before the conclusion: (b) **"tumor progression" omitted**. LoRA: "same size; however, they have gotten bigger" (a contradiction); full FT: "contiguous loop" becomes "**congested** small intestine", "suspicious for malignancy" is cut to "no new spots suspicious"; (c) jargon kept ("ileocecal valve", "presacral"). | Input truncated at 512 tokens **with no warning** (very probable: every output ends at the same place), and almost no long reports in training (4 of 10,000 validation sources exceed 350 words). The reference also contains a Chinese paragraph (artefact). |
+| **C** (512) | Cardiomegaly, peribronchovascular markings, a lingular area "possibly" related to COVID-19. 0.12 / 0.13 / 0.12 | Outputs follow the source and keep the hedge; "lingula" stays unexplained (c). The faithful outputs score **lowest** because the reference ("both lower parts of the lungs show areas of solid cloudiness") omits the heart and COVID: it looks like a mismatched pair. | **Label defect**: ROUGE punishes the faithful model, and zero-shot, which copies the source word for word, scores the same. |
+| **D** (2118) | "Air trapping is noted. A pseudonodular image in the lingula, likely a vascular artifact..." 0.32 / 0.40 / 0.57 | (c) LoRA copies the source verbatim ("pseudonodular", "lingula" untouched). Full FT copies it too, then appends `": "There is a condition where air is trapped in the lungs...` (a proper lay version). | Training artefact: 440 training references (0.29%) have the form `"<near-copy of source>": "<lay text>"`; full FT reproduces it in 63 of 10,000 validation outputs, LoRA r=16 in 31, zero-shot in 0. |
+| **E** (5402) | "Infiltrate likely of infectious or inflammatory origin. Chronic parenchymal changes." 0.17 / 0.72 / 0.81 | Faithful. Full FT keeps "likely"; LoRA says "a sign of", slightly firmer. | Control: the models usually behave. |
 
-Case-level numbers are illustrations of mechanisms, not rates. To size them, cheap checks were run over all 10,000 validation reports (full FT; `autopsy.py`):
+Five cases illustrate mechanisms, not rates. To size them, cheap checks were run over all 10,000 validation reports (`autopsy.py`).
 
-* **Negation/hedge keyword flags** (a negation or hedging word present in the source is missing from the output, or the reverse). Because lay summaries paraphrase ("without relevant findings" becomes "doesn't show anything significant"), a flag is a *candidate*, not an error:
+
+**Negation and hedge flags.** A flag means a negation or hedge word present in the source is missing from the output, or the reverse. It is only a *candidate*, because lay summaries paraphrase ("without relevant findings" becomes "doesn't show anything significant"):
 
 | | negation lost | negation added | hedge lost | hedge added |
 |---|---|---|---|---|
@@ -277,44 +271,42 @@ Case-level numbers are illustrations of mechanisms, not rates. To size them, che
 | LoRA r=16 | 0.8% | 3.1% | 1.5% | 4.9% |
 | Full FT | 1.1% | 3.4% | 1.6% | 5.0% |
 
-  The fine-tuned models change these flags no more often than the reference does; they imitate its style. In an 8-row hand-read sample of "hedge lost" cases from full FT, 5 were hedges inside a negated phrase ("no pleural line to suggest pneumothorax", harmless), 1 was a missing keyword, and 2 truly raised the certainty ("opacity suggestive of atelectasis" became "a small area of lung collapse is seen"). Overall about 10.7% of full-FT summaries have at least one flag.
-* **Copying.** 0.74% of full-FT and 1.12% of LoRA r=16 outputs copy at least 90% of their words from the source, against 0.21% of the references.
-* **Reading grade** (Flesch-Kincaid, syllables approximated): source reports 14.4, reference 7.5, zero-shot 15.1, fine-tuned 7.5 to 7.6. The target of the spec is about 6, so none of them reaches it, the reference included.
+The fine-tuned models change these flags no more often than the reference does. In a hand-read sample of 8 "hedge lost" cases (full FT), 5 were hedges inside a negated phrase (harmless), 1 a missing keyword and 2 truly raised certainty ("opacity suggestive of atelectasis" became "a small area of lung collapse is seen"). About 10.7% of full-FT summaries carry at least one flag.
+
+**Copying and reading level.** 0.74% of full-FT and 1.12% of LoRA r=16 outputs copy at least 90% of their words from the source (references: 0.21%). The Flesch-Kincaid grade (syllables approximated) is 14.4 for source reports, 7.5 for references, 15.1 for zero-shot and 7.5 to 7.6 for the fine-tuned models; the spec's target is about 6, which none reaches, the reference included.
 
 ### 9.4 Discussion
 
-**Does fine-tuning preserve clinical fidelity or only improve fluency?** Both fluency and register improve, and fidelity is *largely but not reliably* kept. Evidence for: negation and hedge flags change no more often than in the reference, most outputs in the cases are faithful, and zero-shot is only "faithful" because it copies and is not lay language (grade 15). Evidence against: every fine-tuned model produced something absent from zero-shot: an invented cause, a displaced finding, a contradiction, a silently dropped conclusion. These are new kinds of error that a copying baseline cannot make. I cannot give an error *rate*: five cases and keyword proxies are not an audited sample, and no radiologist reviewed them.
+**Q1. Does fine-tuning preserve clinical fidelity or only improve fluency?** Both fluency and register improve, and fidelity is *largely but not reliably* kept. Evidence for: negation and hedge flags change no more often than in the reference, most outputs in the cases are faithful, and zero-shot is only "faithful" because it copies and is not lay language (grade 15). Evidence against: every fine-tuned model produced something absent from zero-shot: an invented cause, a displaced finding, a contradiction, a silently dropped conclusion. These are new kinds of error that a copying baseline cannot make. I cannot give an error *rate*: five cases and keyword proxies are not an audited sample, and no radiologist reviewed them.
 
-**Why does ROUGE not guarantee safety?** (i) It counts overlapping words, not meaning (inverted-meaning example above). (ii) In case A the score ranked the output with the wrong anatomical location above the one with the correct description. (iii) In case C faithful outputs scored 0.12 because the reference was defective, and the model that merely copied scored the same. (iv) References are model-written silver labels that contain embellishments (an added "likely") and artefacts, so matching them can be wrong. (v) Choosing checkpoints by ROUGE pulls the model towards GPT-4o's style, not towards correctness. (vi) Memorisation inflates it (3 to 4 points here, more in other splits).
+**Q2. Why does ROUGE not guarantee safety?** (i) It counts overlapping words, not meaning (inverted-meaning example above). (ii) In case A the score ranked the output with the wrong anatomical location above the one with the correct description. (iii) In case C faithful outputs scored 0.12 because the reference was defective, and the model that merely copied scored the same. (iv) References are model-written silver labels that contain embellishments (an added "likely") and artefacts, so matching them can be wrong. (v) Choosing checkpoints by ROUGE pulls the model towards GPT-4o's style, not towards correctness. (vi) Memorisation inflates it (3 to 4 points here, more in other splits).
 
 ### 9.5 Recommendation to the project manager
 
-**Which configuration?** For a single-task service, **full fine-tuning**: best ROUGE on every tier (+2.3 over LoRA r=16 on full validation), fastest generation (0.101 s per report; LoRA unmerged is 1.6x slower), similar training time. Its costs are 4.5 GiB more training memory and a 1 GB checkpoint per variant. Choose **LoRA** (r=16) if several tasks or sites need separate variants of one base model (6.8 MB each), or training memory is the limit. On the safety indicators measured here, the two are not distinguishable (flag rates are alike; full FT reproduces the junk-tail artefact twice as often, 0.63% against 0.31%).
+**Q4a. Which configuration?** For a single-task service, **full fine-tuning**: best ROUGE on every tier (+2.3 over LoRA r=16 on full validation), fastest generation (0.101 s per report; unmerged LoRA is 1.6x slower) and similar training time. It costs 4.5 GiB more training memory and about 1 GB per checkpoint. Choose **LoRA** (r=16, 6.8 MB) if several tasks or sites need separate variants of one base model, or if memory is the limit. On the safety indicators measured here the two are not distinguishable, except that full FT reproduces the junk-tail artefact twice as often (0.63% against 0.31%).
 
-**Guardrails required before any patient-facing use** (each tied to an observed failure):
+**Q3. Guardrails required before any patient-facing use**, each tied to an observed failure:
 
-| Guardrail | What it does | Observed evidence | Status |
+| Guardrail | What it does | Evidence | Status |
 |---|---|---|---|
-| Input length check | Reject or split inputs above the model's window; show that the output covers the whole report | Case B: a long report lost its conclusion silently (long reports are rare in validation, but test reports are longer: median 48 against 32 words) | not implemented |
-| Output sanitiser | Cut at `": "`; reject non-English characters; reject outputs that copy the source (>= 90% of words) | Case D; 0.63% junk tail, 0.74% copies | simple rules, measured here |
-| Entity / negation / hedge verification | Extract findings, negations and certainty words from source and summary and compare; any mismatch goes to review | Cases A and B; about 10.7% of full-FT summaries would be flagged, of which many are harmless paraphrases | keyword version measured here; a trained extractor would raise precision |
-| Confidence filtering | Route low-likelihood summaries (sequence log-probability from beam search) to a person | Proposed; not measured in this project | not tested |
-| Human review | A clinician approves every summary that contains an acute finding or hedge, until an audit shows otherwise | All cases | process |
-| Data hygiene before retraining | Remove references with the `": "` or Chinese artefacts and mismatched BIMCV pairs; avoid training on GPT-4o embellishments | Cases A, B, D; 440 + 64 training references, 2,226 mismatched-session rows | not done |
+| Input length check | Reject or split inputs beyond the model window; confirm the output covers the whole report | Case B; test reports are longer (median 48 against 32 words) | not implemented |
+| Output sanitiser | Cut at `": "`; reject non-English characters; reject outputs that copy the source (>= 90% of words) | Case D; 0.63% junk tails, 0.74% copies | simple rules, measured here |
+| Entity / negation / hedge verification | Extract findings, negations and certainty words from source and summary; any mismatch goes to review | Cases A, B; about 10.7% of full-FT summaries flagged, many harmless | keyword version measured; a trained extractor would be more precise |
+| Confidence filtering | Route low-likelihood summaries (beam-search sequence log-probability) to a person | proposed | not tested |
+| Human review | A clinician approves every summary with an acute finding or hedge until an audit shows otherwise | all cases | process |
+| Data hygiene before retraining | Remove references with the `": "` or Chinese artefacts and mismatched BIMCV pairs | Cases A, B, D; 440 + 64 training references, 2,226 mismatched-session rows | not done |
 
-**Deployment risks.** Silent truncation; invented causes and shifted findings that read fluently and so look trustworthy; certainty changes in both directions; summaries that copy jargon; labels written by a model, not by clinicians; a single dataset of chest X-rays, translated from Spanish for much of it, so other hospitals, languages or modalities are untested; reading grade 7.5 against a target of 6; and no clinician-graded evaluation.
+**Deployment risks (Q3).** Radiologists reviewing LLM-simplified reports have likewise flagged incorrect passages and missing information [9]. Here: silent truncation; fluent but invented causes or displaced findings that look trustworthy; certainty changes in both directions; copied jargon; labels written by a model, not clinicians; one dataset of chest X-rays, largely translated from Spanish, so other hospitals, languages and modalities are untested; reading grade 7.5 against a target of 6; and no clinician-graded evaluation.
 
-**Go / no-go.** **No-go for an autonomous, patient-facing service.** **Conditional go for a pilot in which the model drafts summaries that a clinician reviews**, provided the first four guardrails are in place and a radiologist-graded evaluation set, with acceptance thresholds agreed with clinicians (hallucination, omission of acute findings, certainty change), exists before any patient sees an output. The conditions are the evidence from this project: the model usually helps and sometimes invents.
+**Q4b. Go / no-go.** **No-go for an autonomous, patient-facing service.** **Conditional go for a pilot in which the model drafts summaries that a clinician reviews**, provided the first four guardrails are in place and a radiologist-graded evaluation set (hallucination, omission of acute findings, certainty change, with thresholds agreed with clinicians) exists before any patient sees an output. Reason: the model usually helps and sometimes invents, and ROUGE cannot tell which.
 
 ## 10. Limitations
 
-* **Validation is not leakage-free** (45.1% report overlap, 39.0% study overlap with training); mitigated by three tiers and a study-disjoint dev set, not removed. No patient id exists; study is a proxy. Test-set leakage is likely similar (26.4% share a study) but untestable (no references).
-* **Silver labels:** references were generated by GPT-4o, and no radiologist reviewed any output here. The autopsy is five cases read by one person (not clinically qualified); the keyword flags are crude.
-* **One seed per configuration**, no confidence intervals, and the learning rates differ between LoRA and full FT; the best learning rate was at the edge of the swept grid for both, and dev ROUGE was still improving at epoch 3.
-* **Only FLAN-T5-base, only q and v for LoRA** (rank 8 and 16, alpha not tuned), only chest X-ray reports, one dataset, one fixed prompt for the baseline (a better prompt might raise the zero-shot score).
-* **Augmentation** (four prompt variants) was not ablated. The dev set favours long, rare reports (it resembles the clean tier more than the full validation).
-* **Resource numbers:** latency and tokens/s depend on batch size and beam width and are comparable only within this table; peak training VRAM depends on the micro-batch; the tokens/s column was recomputed (see 9.2). Multi-GPU training was not run (one GPU per node).
-* **Readability** is measured with an approximate grade formula and judged by one reader.
+* **Validation is not leakage-free** (45.1% report and 39.0% study overlap with training); mitigated by three tiers and a study-disjoint dev set, not removed. Test overlap (26.4% by study) cannot be scored (no references).
+* **Silver labels and no clinical review:** references are GPT-4o output; no radiologist graded anything. The autopsy is five cases read without clinical qualification; keyword flags and the reading grade are approximations.
+* **One seed per configuration**, no confidence intervals; LoRA and full FT use different learning rates, the best one was at the edge of the swept grid for both, and dev ROUGE was still rising at epoch 3.
+* **Scope:** FLAN-T5-base only, LoRA on q and v only (alpha not tuned), chest X-ray reports, one dataset, one prompt for the baseline (a better prompt might raise zero-shot), augmentation not ablated, dev set resembles the clean tier more than full validation.
+* **Resource numbers** depend on batch size, beam width and micro-batch, and are comparable only within Section 9.2; the tokens/s column was recomputed. Multi-GPU training was not run.
 
 ## 11. References
 
@@ -331,19 +323,14 @@ Case-level numbers are illustrations of mechanisms, not rates. To size them, che
 
 ## 12. Artificial Intelligence Usage Disclosure
 
-**Tools.** Claude (Anthropic) through Claude Code was used throughout: code scaffolding, debugging, drafting documentation, and planning. Planning and literature notes outside the repository were AI-assisted too; every citation above was checked against its source.
+**Tools.** Claude (Anthropic) through Claude Code, for code scaffolding, debugging, drafting documentation and planning; literature notes were AI-assisted and every citation was checked against its source.
 
-**What the AI helped with, per file** (the AI drafted, the author reviewed and changed): `dataset.py` (prompt, truncation, masking, split tiers), `modules.py` (model builder, LoRA configuration, parameter counts), `utils.py` (ROUGE helpers, generation loop, profiling), `train.py` (training loop, distributed set-up, metrics), `predict.py` (demo and figure), `autopsy.py` and `plot_results.py` (analysis and figures), the Slurm scripts, and this README's structure and wording. The case readings in Section 9.3 were drafted with the AI and reviewed by the author; the keyword and count scripts were written with the AI.
+**What the AI helped with** (AI drafted, the author reviewed and changed): `dataset.py`, `modules.py`, `utils.py`, `train.py`, `predict.py`, `autopsy.py`, `plot_results.py`, the Slurm scripts, and the structure and wording of this README. The case readings in Section 9.3 were drafted with the AI and reviewed by the author.
 
-**How the code and numbers were audited, verified and tested** (not taken on trust):
-* **Self-checks:** hand-computed ROUGE examples (including the inverted-meaning example), the loss formula against the model's own loss, the learning-rate schedule, token counting on padded rows, loss decrease on a fixed batch in full and LoRA mode, gradient accumulation step counts, LoRA parameter counts against the closed formula (884,736 and 1,769,472).
-* **Bugs the checks and cross-checks caught:** randomly initialised encoder/decoder embeddings under one config flag (parameter count too high); a token over-count of 2.3x to 5.3x in `metrics.json` (found by re-tokenising stored outputs); `trainable = 0` for LoRA (counted after reload); a macOS-only DataLoader failure; an unreadable regex in the autopsy selection. Each was fixed and the check repeated.
-* **Independent recomputation:** the 12 ROUGE numbers of Section 9.1, the three evaluation tiers, the overlap percentages, the lookup baseline, the dev-split disjointness and the artefact counts were recomputed with separately written code directly from the raw data and predictions and matched.
-* **Platform check:** zero-shot ROUGE was identical on Colab and Rangpur.
-* **Not verified:** multi-GPU training; any clinical judgement (no radiologist).
+**How it was audited, verified and tested:**
+* **Self-checks:** hand-computed ROUGE examples, loss formula against the model's own loss, learning-rate schedule, token counting on padded rows, loss decrease on a fixed batch (full and LoRA), accumulation step counts, LoRA parameter counts against the closed formula.
+* **Bugs the checks and cross-checks caught:** randomly initialised embeddings under one config flag; a 2.3x to 5.3x token over-count in `metrics.json` (found by re-tokenising the stored outputs); `trainable = 0` for LoRA; a macOS-only DataLoader failure; a regex bug in the autopsy selection. Each was fixed and re-checked.
+* **Independent recomputation:** the ROUGE tables, evaluation tiers, overlap percentages, lookup baseline, dev-split disjointness and artefact counts were recomputed from raw data and predictions with separately written code and matched.
+* **Platform check:** zero-shot ROUGE identical on Colab and Rangpur. **Not verified:** multi-GPU training and any clinical judgement.
 
 <!-- TODO(author): add one or two sentences in your own words on what you personally read, ran, changed and checked (the lines above say "author-reviewed"; make that true before submitting). -->
-
-## Acknowledgements
-
-Dataset and shared task: BioLaySumm 2025 organisers. Compute: UQ Rangpur HPC (COMP3710 allocation).
