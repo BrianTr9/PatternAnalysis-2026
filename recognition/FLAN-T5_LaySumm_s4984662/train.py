@@ -371,7 +371,8 @@ def main(argv=None) -> None:
     tokenizer = load_tokenizer(args.model_name)
     splits = load_laysumm()
     model = build_model(args.mode, args.model_name, lora_r=args.lora_r).to(device)
-    print(f"mode {args.mode} | params {count_parameters(model)} | device {device} | world {world}",
+    parameters = count_parameters(model)         # before training and before any reload
+    print(f"mode {args.mode} | params {parameters} | device {device} | world {world}",
           flush=True)
 
     training = None
@@ -399,7 +400,7 @@ def main(argv=None) -> None:
     metrics = {"args": vars(args), "git": git_info(), "host": socket.gethostname(),
                "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
                "world_size": world, "torch": torch.__version__, "versions": library_versions(),
-               "parameters": count_parameters(model), "training": training,
+               "parameters": parameters, "training": training,
                "validation": result}
     with open(os.path.join(out_dir, "metrics.json"), "w") as f:
         json.dump(metrics, f, indent=2)

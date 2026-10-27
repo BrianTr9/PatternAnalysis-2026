@@ -22,7 +22,7 @@ Key components
 
 Definitions used for the resource table (written into the README as well)
     peak VRAM    torch.cuda.max_memory_allocated() / 2**30, in GiB (not GB).
-    tokens/s     generated tokens (</s> included, padding excluded) divided by the seconds
+    tokens/s     generated tokens (up to and including the first </s>) divided by the seconds
                  spent inside model.generate, with cuda synchronised around every call.
                  One batch is generated first and discarded (warm-up).
     latency      the same seconds divided by the number of reports (seconds per report,
@@ -109,6 +109,17 @@ def peak_vram_gib() -> Optional[float]:
     return torch.cuda.max_memory_allocated() / 2**30
 
 
+def count_generated(sequences: torch.Tensor, eos_id: int) -> int:
+    """Tokens generated in a batch of decoder outputs: from after the start token up to and
+    including the first </s>; a sequence without </s> (cut by max_new_tokens) counts in full.
+    Counting "not equal to the pad id" instead over-counts, because finished beams are not
+    always padded with the pad id."""
+    body = sequences[:, 1:]
+    is_eos = body == eos_id
+    length = torch.where(is_eos.any(dim=1), is_eos.int().argmax(dim=1) + 1, body.shape[1])
+    return int(length.sum())
+
+
 def _sync(device: torch.device) -> None:
     """Wait for queued GPU work so that wall-clock timing is meaningful."""
     if device.type == "cuda":
@@ -155,8 +166,7 @@ def generate_summaries(model, tokenizer, dataset: LaySummDataset, batch_size: in
         out = run(indices)
         _sync(device)
         seconds += time.perf_counter() - start
-        # out[:, 0] is the decoder start token; everything after </s> is padding.
-        generated += int((out[:, 1:] != tokenizer.pad_token_id).sum())
+        generated += count_generated(out, tokenizer.eos_token_id)
         for i, text in zip(indices, tokenizer.batch_decode(out, skip_special_tokens=True)):
             summaries[i] = text.strip()
     model.train(was_training)
@@ -199,6 +209,10 @@ def _self_check(model_name: str) -> None:
     rows = [{k: v for k, v in zip(ROUGE_TYPES, (1.0, 0.5, 0.5, 0.5))},
             {k: v for k, v in zip(ROUGE_TYPES, (0.0, 0.0, 0.0, 0.0))}]
     assert close(mean_rouge(rows)["rouge1"], 50.0) and close(mean_rouge(rows, [0])["rouge2"], 50.0)
+    # Token counting: <s>=0 start, </s>=1; rows end with </s> then padding of either kind,
+    # or never end (cut by max_new_tokens).
+    rows = torch.tensor([[0, 5, 6, 1, 1, 1], [0, 7, 1, 0, 0, 0], [0, 8, 9, 10, 11, 12]])
+    assert count_generated(rows, eos_id=1) == 3 + 2 + 5, count_generated(rows, eos_id=1)
     print("rouge checks passed")
 
     # 4. Generation: shape, order, and agreement between batch sizes (greedy, so that the
