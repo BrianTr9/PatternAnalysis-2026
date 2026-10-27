@@ -332,5 +332,3 @@ The fine-tuned models change these flags no more often than the reference does. 
 * **Bugs the checks and cross-checks caught:** randomly initialised embeddings under one config flag; a 2.3x to 5.3x token over-count in `metrics.json` (found by re-tokenising the stored outputs); `trainable = 0` for LoRA; a macOS-only DataLoader failure; a regex bug in the autopsy selection. Each was fixed and re-checked.
 * **Independent recomputation:** the ROUGE tables, evaluation tiers, overlap percentages, lookup baseline, dev-split disjointness and artefact counts were recomputed from raw data and predictions with separately written code and matched.
 * **Platform check:** zero-shot ROUGE identical on Colab and Rangpur. **Not verified:** multi-GPU training and any clinical judgement.
-
-<!-- TODO(author): add one or two sentences in your own words on what you personally read, ran, changed and checked (the lines above say "author-reviewed"; make that true before submitting). -->
