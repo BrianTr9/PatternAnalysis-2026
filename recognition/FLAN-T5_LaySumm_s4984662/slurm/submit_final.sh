@@ -3,8 +3,8 @@
 # Author : Trung Bao Truong (Brian Truong), student ID 49846627 (s4984662) | COMP3710 Project 2.6
 # Usage  : bash slurm/submit_final.sh   (from the project folder on Rangpur)
 # Skips a run when metrics.json exists, or when a Slurm job with that name is already queued/running.
-# Learning rates: LoRA 3e-3, full 3e-4 (chosen on the Colab development-set sweep).
-# Effective batch: 8 x grad_accum 2. Wall times: 2 h zeroshot, 5 h each fine-tune.
+# Learning rates: LoRA 3e-3, full 3e-4 (the best of the development-set sweep, see the README).
+# Effective batch 16 (micro-batch 8, grad_accum 2); wall time 2 h zero-shot, 5 h per fine-tune.
 
 set -euo pipefail
 

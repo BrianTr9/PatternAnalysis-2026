@@ -16,8 +16,8 @@ nvidia-smi
 free -h
 
 # A batch job starts from a clean environment, so activate conda here.
-source "$HOME/miniconda3/bin/activate"
-conda activate torch
+# Passing "torch" here keeps activate from reading this script's own arguments.
+source "$HOME/miniconda3/bin/activate" torch
 export HF_HOME="$HOME/hf_cache" HF_HUB_OFFLINE=1   # model and data are pre-downloaded
 
 python slurm/env_check.py

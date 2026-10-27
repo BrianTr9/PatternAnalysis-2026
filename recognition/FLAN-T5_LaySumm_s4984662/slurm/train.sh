@@ -16,8 +16,8 @@ echo "Job $SLURM_JOB_ID on $(hostname), started $(date)"
 nvidia-smi
 
 # A batch job starts from a clean environment, so activate conda and set the cache here.
-source "$HOME/miniconda3/bin/activate"
-conda activate torch
+# Passing "torch" here keeps activate from reading this script's own arguments.
+source "$HOME/miniconda3/bin/activate" torch
 export HF_HOME="$HOME/hf_cache" HF_HUB_OFFLINE=1 PYTHONUNBUFFERED=1 TOKENIZERS_PARALLELISM=false
 
 cd "$SLURM_SUBMIT_DIR"
